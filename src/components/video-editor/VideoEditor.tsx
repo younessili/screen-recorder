@@ -944,7 +944,9 @@ export default function VideoEditor() {
 					target instanceof HTMLInputElement ||
 					target instanceof HTMLTextAreaElement ||
 					target instanceof HTMLSelectElement ||
-					(target instanceof HTMLElement && target.isContentEditable)
+					(target instanceof HTMLElement &&
+						(target.isContentEditable ||
+							target.closest('[role="separator"], [role="slider"], [role="spinbutton"]')))
 				) {
 					return;
 				}
