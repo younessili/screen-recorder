@@ -2,7 +2,9 @@ import { fixWebmDuration } from "@fix-webm-duration/fix";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useScopedT } from "@/contexts/I18nContext";
+import { MicStemRecorder } from "@/lib/micStemRecorder";
 import { requestCameraAccess } from "@/lib/requestCameraAccess";
+import { encodeMonoWav16BitPCM } from "@/lib/wavEncoder";
 
 const TARGET_FRAME_RATE = 60;
 const MIN_FRAME_RATE = 30;
@@ -30,6 +32,8 @@ const CHROME_MEDIA_SOURCE = "desktop";
 const RECORDING_FILE_PREFIX = "recording-";
 const VIDEO_FILE_EXTENSION = ".webm";
 const WEBCAM_FILE_SUFFIX = "-webcam";
+const MIC_STEM_FILE_SUFFIX = ".mic";
+const MIC_STEM_FILE_EXTENSION = ".wav";
 
 const AUDIO_BITRATE_VOICE = 128_000;
 const AUDIO_BITRATE_SYSTEM = 192_000;
@@ -98,6 +102,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	const [webcamEnabled, setWebcamEnabledState] = useState(false);
 	const screenRecorder = useRef<RecorderHandle | null>(null);
 	const webcamRecorder = useRef<RecorderHandle | null>(null);
+	const micStemRecorder = useRef<MicStemRecorder | null>(null);
 	const stream = useRef<MediaStream | null>(null);
 	const screenStream = useRef<MediaStream | null>(null);
 	const microphoneStream = useRef<MediaStream | null>(null);
@@ -170,6 +175,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		}
 	}, []);
 
+	const teardownMicStem = useCallback(() => {
+		if (micStemRecorder.current) {
+			micStemRecorder.current.stop().catch(() => undefined);
+			micStemRecorder.current = null;
+		}
+	}, []);
+
 	const setWebcamEnabled = useCallback(
 		async (enabled: boolean) => {
 			if (!enabled) {
@@ -213,6 +225,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				webcamRecorder.current = null;
 			}
 
+			const activeMicStemRecorder = micStemRecorder.current;
+			if (activeMicStemRecorder && micStemRecorder.current === activeMicStemRecorder) {
+				micStemRecorder.current = null;
+			}
+
 			teardownMedia();
 			setRecording(false);
 			setPaused(false);
@@ -225,9 +242,15 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				try {
 					const screenBlob = await activeScreenRecorder.recordedBlobPromise;
 					if (discardRecordingId.current === activeRecordingId) {
+						if (activeMicStemRecorder) {
+							await activeMicStemRecorder.stop().catch(() => undefined);
+						}
 						return;
 					}
 					if (screenBlob.size === 0) {
+						if (activeMicStemRecorder) {
+							await activeMicStemRecorder.stop().catch(() => undefined);
+						}
 						return;
 					}
 
@@ -240,8 +263,22 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 						}
 					}
 
+					let micAudioBuffer: ArrayBuffer | null = null;
+					if (activeMicStemRecorder) {
+						try {
+							const capture = await activeMicStemRecorder.stop();
+							if (capture.samples.length > 0) {
+								micAudioBuffer = encodeMonoWav16BitPCM(capture.samples, capture.sampleRate);
+							}
+						} catch (micStemError) {
+							console.warn("Failed to finalize mic stem capture:", micStemError);
+						}
+					}
+
 					const screenFileName = `${RECORDING_FILE_PREFIX}${activeRecordingId}${VIDEO_FILE_EXTENSION}`;
 					const webcamFileName = `${RECORDING_FILE_PREFIX}${activeRecordingId}${WEBCAM_FILE_SUFFIX}${VIDEO_FILE_EXTENSION}`;
+					const micFileName = `${RECORDING_FILE_PREFIX}${activeRecordingId}${MIC_STEM_FILE_SUFFIX}${MIC_STEM_FILE_EXTENSION}`;
+
 					const result = await window.electronAPI.storeRecordedSession({
 						screen: {
 							videoData: await fixedScreenBlob.arrayBuffer(),
@@ -251,6 +288,12 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 							? {
 									videoData: await fixedWebcamBlob.arrayBuffer(),
 									fileName: webcamFileName,
+								}
+							: undefined,
+						micAudio: micAudioBuffer
+							? {
+									audioData: micAudioBuffer,
+									fileName: micFileName,
 								}
 							: undefined,
 						createdAt: activeRecordingId,
@@ -361,9 +404,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			}
 			screenRecorder.current = null;
 			webcamRecorder.current = null;
+			teardownMicStem();
 			teardownMedia();
 		};
-	}, [teardownMedia]);
+	}, [teardownMedia, teardownMicStem]);
 
 	const startRecording = async () => {
 		try {
@@ -434,6 +478,17 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					console.warn("Failed to get microphone access:", audioError);
 					toast.error(t("recording.microphoneDenied"));
 					setMicrophoneEnabled(false);
+				}
+			}
+
+			if (microphoneStream.current) {
+				try {
+					const micRecorder = new MicStemRecorder();
+					micRecorder.start(microphoneStream.current);
+					micStemRecorder.current = micRecorder;
+				} catch (micStemError) {
+					console.warn("Failed to start mic stem capture:", micStemError);
+					micStemRecorder.current = null;
 				}
 			}
 
@@ -590,6 +645,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			segmentStartedAt.current = null;
 			screenRecorder.current = null;
 			webcamRecorder.current = null;
+			teardownMicStem();
 			teardownMedia();
 		}
 	};
@@ -608,6 +664,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				if (activeWebcamRecorder?.state === "paused") {
 					activeWebcamRecorder.resume();
 				}
+				micStemRecorder.current?.resume();
 				segmentStartedAt.current = Date.now();
 				setPaused(false);
 			} catch (error) {
@@ -628,6 +685,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			if (activeWebcamRecorder?.state === "recording") {
 				activeWebcamRecorder.pause();
 			}
+			micStemRecorder.current?.pause();
 			setPaused(true);
 		} catch (error) {
 			console.error("Failed to pause recording:", error);
