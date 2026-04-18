@@ -90,7 +90,7 @@ Save as a re-applicable "OperateU" preset. Source of truth: `01_OperateU/_contex
 
 ## Execution order
 
-1. Phase 1 (mic stem) — smallest, isolated
+1. Phase 1 (mic stem) — shipped 2026-04-18 (`_plans/2026-04-18-phase-1-mic-stem.md`)
 2. Phase 2a (skip re-render via fast remux) — biggest daily-workflow impact, modest scope
 3. Phase 3 (brand defaults) — polish, low risk
 4. Phase 2b (HW-accel edited export) — important, separate plan, do last
