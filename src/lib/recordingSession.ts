@@ -1,6 +1,7 @@
 export interface ProjectMedia {
 	screenVideoPath: string;
 	webcamVideoPath?: string;
+	micAudioPath?: string;
 }
 
 export interface RecordingSession extends ProjectMedia {
@@ -12,9 +13,15 @@ export interface RecordedVideoAssetInput {
 	videoData: ArrayBuffer;
 }
 
+export interface RecordedAudioAssetInput {
+	fileName: string;
+	audioData: ArrayBuffer;
+}
+
 export interface StoreRecordedSessionInput {
 	screen: RecordedVideoAssetInput;
 	webcam?: RecordedVideoAssetInput;
+	micAudio?: RecordedAudioAssetInput;
 	createdAt?: number;
 }
 
@@ -40,12 +47,12 @@ export function normalizeProjectMedia(candidate: unknown): ProjectMedia | null {
 	}
 
 	const webcamVideoPath = normalizePath(raw.webcamVideoPath);
+	const micAudioPath = normalizePath(raw.micAudioPath);
 
-	return webcamVideoPath
-		? { screenVideoPath, webcamVideoPath }
-		: {
-				screenVideoPath,
-			};
+	const result: ProjectMedia = { screenVideoPath };
+	if (webcamVideoPath) result.webcamVideoPath = webcamVideoPath;
+	if (micAudioPath) result.micAudioPath = micAudioPath;
+	return result;
 }
 
 export function normalizeRecordingSession(candidate: unknown): RecordingSession | null {
