@@ -268,9 +268,18 @@ async function storeRecordedSessionFiles(payload: StoreRecordedSessionInput) {
 		await fs.writeFile(webcamVideoPath, Buffer.from(payload.webcam.videoData));
 	}
 
-	const session: RecordingSession = webcamVideoPath
-		? { screenVideoPath, webcamVideoPath, createdAt }
-		: { screenVideoPath, createdAt };
+	let micAudioPath: string | undefined;
+	if (payload.micAudio) {
+		micAudioPath = resolveRecordingOutputPath(payload.micAudio.fileName);
+		await fs.writeFile(micAudioPath, Buffer.from(payload.micAudio.audioData));
+	}
+
+	const session: RecordingSession = {
+		screenVideoPath,
+		createdAt,
+		...(webcamVideoPath ? { webcamVideoPath } : {}),
+		...(micAudioPath ? { micAudioPath } : {}),
+	};
 	setCurrentRecordingSessionState(session);
 	currentProjectPath = null;
 
