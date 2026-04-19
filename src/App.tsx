@@ -43,7 +43,7 @@ export default function App() {
 			default:
 				return (
 					<div className="w-full h-full bg-background text-foreground">
-						<h1>Openscreen</h1>
+						<h1>Screen Recorder</h1>
 					</div>
 				);
 		}
