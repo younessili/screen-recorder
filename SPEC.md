@@ -23,19 +23,13 @@ The mic MediaStream is already separate from screen capture — tee it to a seco
 
 ---
 
-## Phase 2a — Skip re-render when no edits applied
+## Phase 2a — Skip re-render when no edits applied — ABANDONED 2026-04-19
 
-Recording already produces a usable file the editor opens directly without transcoding (verified: `handlers.ts:263`, `VideoEditor.tsx:350-370`, `handlers.ts:27`). Current export re-renders every frame even when the user made zero edits — that's the ~3× real-time slowdown for the no-edit case.
+**Status: not shipping.** The implementation (auto-fast-path via ffmpeg-static + `h264_videotoolbox` when no edits were applied) was built on branch `phase-2a-skip-rerender` and verified end-to-end, but abandoned during manual testing because the fast path produces a **raw passthrough** of the source WebM — no PixiJS compositing, so padding / wallpaper / shadow / border-radius / webcam overlay / cursor effects all disappear from the output. That is what the SPEC literally asked for ("raw assets to Premiere fast"), but in practice the user's common workflow is the styled export visible in the editor preview. The quality gap made the auto-trigger feel like a regression, not a speedup.
 
-Caveat: recording is **AV1 + Opus in WebM**, which Premiere does not import natively. So the "no edits" path can't just copy the WebM — it needs to **remux/transcode to MP4 (H.264 + AAC)** for Premiere compatibility. Done with VideoToolbox, this is still 5-10× faster than the current frame-by-frame pipeline.
+**Lessons for 2b:** the bottleneck worth fixing is the *styled* render path — not a separate "unstyled but fast" path. Phase 2b covers that directly: hardware-accelerate the existing PixiJS → WebCodecs pipeline so the same visual output ships 5–10× faster. No divergent output modes, no ffmpeg dependency.
 
-Fix:
-- On export, detect "no edits applied" (project snapshot == baseline)
-- If no edits: pipe source WebM through a fast VideoToolbox H.264 transcode + AAC audio → MP4 destination. Skip PixiJS pipeline entirely.
-- If edits: existing render path runs as today (until 2b lands)
-- Touches: `src/lib/exporter/videoExporter.ts`, `src/components/video-editor/ExportDialog.tsx`
-
-Interim manual escape hatch (no code change): ffmpeg one-liner from CLI — see Appendix A.
+**If the raw-to-Premiere workflow ever matters again,** the original implementation is recoverable from git history (branch was deleted after WIP commit `1f09a30`), and the manual escape hatch in Appendix A still works from the CLI without any code changes.
 
 ---
 
@@ -58,7 +52,7 @@ Risks:
 - WebCodecs hardware path varies by Chromium version (Electron 39 currently)
 - Edge cases: HDR, color space handling, audio drift across long recordings
 
-Owner: TBD. Do not start until 2a ships and a proper plan exists.
+Owner: TBD. Next phase up — 2a was abandoned, so 2b is the primary path to faster exports. Gets its own branch + plan in a new session.
 
 ---
 
@@ -91,15 +85,15 @@ Save as a re-applicable "OperateU" preset. Source of truth: `01_OperateU/_contex
 ## Execution order
 
 1. Phase 1 (mic stem) — shipped 2026-04-18 (`_plans/2026-04-18-phase-1-mic-stem.md`)
-2. Phase 2a (skip re-render via fast remux) — biggest daily-workflow impact, modest scope
-3. Phase 3 (brand defaults) — polish, low risk
-4. Phase 2b (HW-accel edited export) — important, separate plan, do last
+2. ~~Phase 2a (skip re-render via fast remux)~~ — abandoned 2026-04-19, see Phase 2a section for reasoning
+3. Phase 2b (HW-accel edited export) — primary path to faster exports; next slice up
+4. Phase 3 (brand defaults) — polish, low risk
 
 ---
 
-## Appendix A — Interim ffmpeg escape hatch
+## Appendix A — Manual ffmpeg escape hatch (Premiere handoff)
 
-Until Phase 2a ships, when an OpenScreen export is taking too long, kill it and transcode the raw recording directly:
+When you want the raw recording in Premiere format without the styled export, skip the app entirely and transcode the source WebM directly. This is the intentional replacement for abandoned Phase 2a — no code path, no UI, just a shell one-liner you run when you need it:
 
 ```bash
 ffmpeg -i "<recording>.webm" \
@@ -108,6 +102,6 @@ ffmpeg -i "<recording>.webm" \
   output.mp4
 ```
 
-Recordings live at: `~/Library/Application Support/Openscreen/recordings/`
+Recordings live at: `~/Library/Application Support/Screen Recorder/recordings/`
 Format: AV1 video + Opus audio in WebM container.
 Premiere does not import AV1/Opus/WebM natively — transcode is required.
