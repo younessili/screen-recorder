@@ -29,9 +29,11 @@
 
   "mac": {
     "notarize": false,
-    "hardenedRuntime": true,
-    "entitlements": "macos.entitlements",
-    "entitlementsInherit": "macos.entitlements",
+    // Disabled for local ad-hoc builds: hardenedRuntime + no Apple Developer ID
+    // causes macOS TCC to re-prompt for Screen Recording every launch because
+    // Electron's helper processes look like distinct requesters. Re-enable
+    // only if you ever want to notarize for public distribution.
+    "hardenedRuntime": false,
     "target": [
       {
         "target": "dmg",
