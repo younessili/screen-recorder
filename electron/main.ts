@@ -338,6 +338,13 @@ app.on("activate", () => {
 
 // Register all IPC handlers when app is ready
 app.whenReady().then(async () => {
+	// Force the Dock icon to show on macOS. The HUD overlay window has
+	// skipTaskbar:true which normally hides the app from the Dock when it's
+	// the only window open, preventing "Keep in Dock" from working.
+	if (process.platform === "darwin") {
+		app.dock?.show().catch(() => undefined);
+	}
+
 	// Allow microphone/media permission checks
 	session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
 		const allowed = ["media", "audioCapture", "microphone", "videoCapture", "camera"];
