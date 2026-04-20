@@ -237,24 +237,13 @@ export class VideoExporter {
 
 						const canvas = renderer.getCanvas();
 
-						// Read raw pixels from the canvas instead of passing
-						// the canvas directly to VideoFrame. On some Linux
-						// systems the GPU shared-image path (EGL/Ozone) fails
-						// silently, producing empty frames.
-						const canvasCtx = canvas.getContext("2d")!;
-						const imageData = canvasCtx.getImageData(0, 0, canvas.width, canvas.height);
-						const exportFrame = new VideoFrame(imageData.data.buffer, {
-							format: "RGBA",
-							codedWidth: canvas.width,
-							codedHeight: canvas.height,
+						// Construct VideoFrame directly from the composite canvas so the
+						// encoder can use the GPU shared-image path. macOS-only — on Linux
+						// (EGL/Ozone) this is unreliable, but the project ships macOS-only
+						// per SPEC. Color space is inferred from the canvas.
+						const exportFrame = new VideoFrame(canvas, {
 							timestamp,
 							duration: frameDuration,
-							colorSpace: {
-								primaries: "bt709",
-								transfer: "iec61966-2-1",
-								matrix: "rgb",
-								fullRange: true,
-							},
 						});
 
 						while (
