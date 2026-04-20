@@ -237,14 +237,19 @@ export class VideoExporter {
 
 						const canvas = renderer.getCanvas();
 
-						// Construct VideoFrame directly from the composite canvas so the
-						// encoder can use the GPU shared-image path. macOS-only — on Linux
-						// (EGL/Ozone) this is unreliable, but the project ships macOS-only
-						// per SPEC. Color space is inferred from the canvas.
-						const exportFrame = new VideoFrame(canvas, {
+						// Snapshot the canvas into an ImageBitmap before building the
+						// VideoFrame. `new VideoFrame(canvas)` in Chromium can hold a
+						// reference to the canvas GPU backing store rather than a true
+						// copy — with the encoder queue up to 120 frames deep, pending
+						// frames would then be corrupted by the next renderFrame's
+						// clearRect before they encode. createImageBitmap forces an
+						// independent GPU-side snapshot so in-flight frames stay intact.
+						const bitmap = await createImageBitmap(canvas);
+						const exportFrame = new VideoFrame(bitmap, {
 							timestamp,
 							duration: frameDuration,
 						});
+						bitmap.close();
 
 						while (
 							this.encoder &&
