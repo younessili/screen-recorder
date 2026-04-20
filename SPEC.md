@@ -33,26 +33,19 @@ The mic MediaStream is already separate from screen capture — tee it to a seco
 
 ---
 
-## Phase 2b — Hardware-accelerated edited export
+## Phase 2b — Hardware-accelerated edited export — PARTIAL SHIP 2026-04-20
 
-Important, non-trivial, gets its own plan before execution.
+Eliminated the `getImageData` CPU readback at `videoExporter.ts` by snapshotting the composite canvas with `createImageBitmap` and passing the bitmap to `new VideoFrame(...)`. The encoder now consumes a GPU-resident snapshot instead of walking an RGBA `ArrayBuffer` on every frame.
 
-Current pipeline is software-encoded with a per-frame GPU→CPU readback (`videoExporter.ts:175-176`, `:245`). Even when the encoder *could* use hardware, the `getImageData()` readback stalls the GPU on every frame.
+The encoder was already configured with `hardwareAcceleration: "prefer-hardware"` (VideoToolbox on macOS) — that bullet in the original scope was stale.
 
-Fixes (rough scope, to be turned into a proper plan):
-- Request `hardwareAcceleration: "prefer-hardware"` on `VideoEncoder` (Chromium → VideoToolbox H.264/HEVC on macOS)
-- Render PixiJS to `OffscreenCanvas`, wrap with `new VideoFrame(canvas)` — keep frames on GPU through encode, skip the readback
-- Validate the existing mediabunny muxer accepts the new frame format
-- Tune codec/bitrate defaults for screen-recording content (high-detail static text, fast motion during scroll)
-- Audit zoom/blur PixiJS filters — confirm they stay GPU-resident
-- Benchmark vs. current path; target 5-10× speedup on M-series Macs
+**Not shipped — reverted during manual testing:** the sibling change to remove `FrameRenderer.readbackVideoCanvas` (the `gl.readPixels` → raster canvas hop). In theory unnecessary on macOS (the original comment blamed Linux/EGL), but in practice removing it produced exports missing the background and frame styling on fresh editor state, while working on edited state — evidence that `drawImage(pixiCanvas, ...)` onto the 2D composite canvas does not reliably force GPU sync in Electron 39 / Chromium. The `readPixels` call was doing double duty as an explicit GPU barrier, not just a copy. The revert is committed on the branch and preserved in history.
 
-Risks:
-- Some PixiJS filter chains may force CPU readback regardless
-- WebCodecs hardware path varies by Chromium version (Electron 39 currently)
-- Edge cases: HDR, color space handling, audio drift across long recordings
+**Next iteration candidates** (deferred to a follow-up phase):
+- Force GPU sync before `drawImage(pixiCanvas)` via `gl.finish()` or a 1×1 `readPixels` dummy, then retry removing `readbackVideoCanvas`.
+- Render background + shadow + webcam *inside* PixiJS so compositing stays on the GPU end-to-end and the 2D composite canvas goes away entirely. Bigger refactor.
 
-Owner: TBD. Next phase up — 2a was abandoned, so 2b is the primary path to faster exports. Gets its own branch + plan in a new session.
+Plan: `_plans/2026-04-20-phase-2b-hw-accel-export.md`
 
 ---
 
@@ -86,7 +79,7 @@ Save as a re-applicable "OperateU" preset. Source of truth: `01_OperateU/_contex
 
 1. Phase 1 (mic stem) — shipped 2026-04-18 (`_plans/2026-04-18-phase-1-mic-stem.md`)
 2. ~~Phase 2a (skip re-render via fast remux)~~ — abandoned 2026-04-19, see Phase 2a section for reasoning
-3. Phase 2b (HW-accel edited export) — primary path to faster exports; next slice up
+3. Phase 2b (HW-accel edited export) — partial ship 2026-04-20 (`_plans/2026-04-20-phase-2b-hw-accel-export.md`) — one of two readbacks eliminated; deeper rewrite deferred
 4. Phase 3 (brand defaults) — polish, low risk
 
 ---
